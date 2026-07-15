@@ -172,7 +172,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.broadcastOnlineUsers();
 
       // 6. Push the personalised room list (always includes General) to this user
-      await this.emitRoomsToUser(userId);
+      await this.emitRoomsToUser(userId, client.id);
 
       // Emit friendship lists and alert friends
       await this.emitFriendships(userId, client.id);
@@ -792,12 +792,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * Emit the personalised room list to a single user by userId.
+   * Can target a specific socketId or fallback to all active sockets for that user.
    */
-  private async emitRoomsToUser(userId: string) {
-    const socketId = this.chatService.getSocketIdByUserId(userId);
-    if (!socketId) return;
+  private async emitRoomsToUser(userId: string, socketId?: string) {
     const rooms = await this.roomRepository.getAllForUser(userId);
-    this.server.to(socketId).emit('rooms_list', rooms);
+    if (socketId) {
+      this.server.to(socketId).emit('rooms_list', rooms);
+      return;
+    }
+    const socketIds = this.chatService.getSocketIdsByUserId(userId);
+    for (const sid of socketIds) {
+      this.server.to(sid).emit('rooms_list', rooms);
+    }
   }
 
   /**

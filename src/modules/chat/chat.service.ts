@@ -75,6 +75,19 @@ export class ChatService {
   }
 
   /**
+   * Get all active socket IDs for a userId (in case of multiple tabs or laggy disconnect).
+   */
+  getSocketIdsByUserId(userId: string): string[] {
+    const sids: string[] = [];
+    for (const [sid, u] of this.connectedUsers) {
+      if (u.userId === userId) {
+        sids.push(sid);
+      }
+    }
+    return sids;
+  }
+
+  /**
    * Add user to a room.
    */
   joinRoom(socketId: string, roomId: string): void {
