@@ -30,7 +30,12 @@ type BatchPayload = { items: BatchItem[] };
  * Namespace: default (/).
  */
 @WebSocketGateway({
-  cors: { origin: ['http://localhost:5173', 'http://localhost:3000'] },
+  cors: {
+    origin: process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+      : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+    credentials: true,
+  },
   namespace: '/',
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
