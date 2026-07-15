@@ -508,7 +508,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const roomId = payload.roomId || 'general';
     client.leave(roomId);
-    this.chatService.leaveRoom(client.id, roomId);
+    const wasInRoom = this.chatService.leaveRoom(client.id, roomId);
+
+    if (!wasInRoom) {
+      this.logger.log(`${user.username} switched away from room: ${roomId} (was not in room, skipping broadcast)`);
+      return;
+    }
 
     const data = {
       userId: user.userId,

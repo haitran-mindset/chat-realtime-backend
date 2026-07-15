@@ -115,9 +115,16 @@ export class ChatService {
 
   /**
    * User explicitly leaves a room.
+   * Returns true if they were in the room, false otherwise.
    */
-  leaveRoom(socketId: string, roomId: string): void {
-    this.leaveRoomInternal(socketId, roomId);
+  leaveRoom(socketId: string, roomId: string): boolean {
+    const user = this.connectedUsers.get(socketId);
+    if (!user) return false;
+    const wasMember = user.joinedRooms.has(roomId);
+    if (wasMember) {
+      this.leaveRoomInternal(socketId, roomId);
+    }
+    return wasMember;
   }
 
   /**

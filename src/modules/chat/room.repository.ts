@@ -204,6 +204,12 @@ export class RoomRepository implements OnModuleInit {
     if (roomId === GENERAL_ROOM_ID) throw new Error('Cannot delete general room');
     const room = await this.getById(roomId);
     if (!room) throw new Error('Room not found');
+
+    // Manually delete all messages in this room to clean up the database
+    await this.prisma.message.deleteMany({
+      where: { roomId },
+    });
+
     await this.prisma.room.delete({
       where: { id: roomId },
     });
