@@ -1,0 +1,77 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Room {
+  id        String       @id @db.VarChar(255)
+  name      String       @unique @db.VarChar(255)
+  createdBy String       @map("createdby") @db.VarChar(255)
+  createdAt BigInt       @map("createdat")
+  isPrivate Boolean      @default(true) @map("isprivate")
+  members   RoomMember[]
+
+  @@map("rooms")
+}
+
+model Message {
+  id           String  @id @db.VarChar(255)
+  userId       String  @map("userid") @db.VarChar(255)
+  username     String  @db.VarChar(255)
+  avatar       String  @default("") @db.Text
+  message      String  @db.Text
+  roomId       String? @map("roomid") @db.VarChar(255)
+  targetUserId String? @map("targetuserid") @db.VarChar(255)
+  timestamp    BigInt
+
+  @@index([roomId, timestamp], name: "idx_messages_room_timestamp")
+  @@index([userId, targetUserId, timestamp], name: "idx_private_messages")
+  @@map("messages")
+}
+
+model Profile {
+  id                  String       @id @db.VarChar(255)
+  email               String       @unique @db.VarChar(255)
+  username            String       @db.VarChar(255)
+  avatar              String       @default("") @db.Text
+  bio                 String?      @db.Text
+  role                String       @default("USER") @db.VarChar(20)
+  createdAt           BigInt       @map("createdat")
+  rooms               RoomMember[]
+  friendshipsSent     Friendship[] @relation("UserFriendships")
+  friendshipsReceived Friendship[] @relation("FriendFriendships")
+
+  @@map("profiles")
+}
+
+model RoomMember {
+  id        String   @id @default(uuid()) @db.VarChar(255)
+  profileId String   @map("profileid") @db.VarChar(255)
+  roomId    String   @map("roomid") @db.VarChar(255)
+  joinedAt  BigInt   @map("joinedat")
+
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, roomId], name: "uq_profile_room")
+  @@map("room_members")
+}
+
+model Friendship {
+  id        String   @id @default(uuid()) @db.VarChar(255)
+  userId    String   @map("userid") @db.VarChar(255)
+  friendId  String   @map("friendid") @db.VarChar(255)
+  status    String   @default("PENDING") @db.VarChar(50) // PENDING, ACCEPTED
+  createdAt BigInt   @map("createdat")
+
+  user      Profile  @relation("UserFriendships", fields: [userId], references: [id], onDelete: Cascade)
+  friend    Profile  @relation("FriendFriendships", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId], name: "uq_friendship_users")
+  @@map("friendships")
+}
+
