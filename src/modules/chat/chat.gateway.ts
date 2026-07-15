@@ -545,6 +545,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    // 1. UPDATE IN-MEMORY STATE IMMEDIATELY to prevent race conditions from concurrent leave_room events
+    const wasInRoom = this.chatService.leaveRoom(client.id, roomId);
+    client.leave(roomId);
+
     try {
       const isMember = await this.roomRepository.isMember(roomId, user.userId);
       if (!isMember) {
@@ -555,20 +559,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Remove from DB membership
       await this.roomRepository.leaveRoom(user.userId, roomId);
 
-      // Leave socket channel
-      client.leave(roomId);
-      this.chatService.leaveRoom(client.id, roomId);
-
       this.logger.log(`${user.username} left room permanently: ${roomId}`);
 
-      // Notify others in room
-      const data = {
-        userId: user.userId,
-        username: user.username,
-        roomId,
-        timestamp: new Date().toISOString(),
-      };
-      this.server.to(roomId).emit('user_left_room', data);
+      // Notify others in room only if they were in the room in memory
+      if (wasInRoom) {
+        const data = {
+          userId: user.userId,
+          username: user.username,
+          roomId,
+          timestamp: new Date().toISOString(),
+        };
+        this.server.to(roomId).emit('user_left_room', data);
+      }
 
       // Send updated room list to user
       await this.emitRoomsToUser(user.userId);
@@ -626,7 +628,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           targetSocket.join(generalId);
           this.chatService.leaveRoom(targetSocketId, roomId);
           this.chatService.joinRoom(targetSocketId, generalId);
-          targetSocket.emit('moved_to_general', { roomId });
+          targetSocket.emit('moved_to_general', { roomId, reason: 'kick' });
         }
         // Send updated room list to target user
         await this.emitRoomsToUser(targetUserId);
@@ -924,7 +926,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           socket.join(generalId);
           this.chatService.leaveRoom(socketId, roomId);
           this.chatService.joinRoom(socketId, generalId);
-          socket.emit('moved_to_general', { roomId });
+          socket.emit('moved_to_general', { roomId, reason: 'delete' });
         }
       }
 
