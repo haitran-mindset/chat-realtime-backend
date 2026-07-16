@@ -1,85 +1,159 @@
-# WebSocket Chat – Backend
+# WeHeyChat — Backend 🌸
 
-NestJS WebSocket server using **Socket.IO**, persisting messages and chat rooms with **Supabase PostgreSQL**.
+NestJS WebSocket server xử lý toàn bộ logic realtime của **WeHeyChat**: chat phòng, private DM, friend system, room invitations, quản lý profile và lịch sử tin nhắn.
 
-## Tech stack
+---
 
-- **NestJS** (Node.js)
-- **Socket.IO** (WebSocket)
-- **PostgreSQL** (via `pg` pool)
-- **TypeScript**
+## ⚙️ Tech stack
 
-## Structure
+| | |
+|---|---|
+| **Framework** | NestJS 10 |
+| **WebSocket** | Socket.IO 4 (`@nestjs/websockets`, `@nestjs/platform-socket.io`) |
+| **Database** | PostgreSQL (Supabase / Render) qua **Prisma ORM** |
+| **Language** | TypeScript (strict) |
+| **Port mặc định** | `3001` |
+
+---
+
+## 📁 Cấu trúc thư mục
 
 ```
 backend/
 ├── src/
-│   ├── main.ts              # Bootstrap, CORS, port 3001
+│   ├── main.ts                      # Bootstrap, CORS, port config
 │   ├── app.module.ts
+│   ├── prisma/
+│   │   └── prisma.service.ts        # PrismaClient singleton (injectable)
 │   └── modules/
 │       └── chat/
 │           ├── chat.module.ts
-│           ├── chat.gateway.ts    # Socket.IO events
-│           ├── chat.service.ts
-│           ├── message.repository.ts   # PostgreSQL messages
-│           ├── room.repository.ts      # Rooms CRUD
+│           ├── chat.gateway.ts      # Toàn bộ Socket.IO event handlers
+│           ├── chat.service.ts      # Business logic (connect, disconnect...)
+│           ├── message.repository.ts    # CRUD messages
+│           ├── room.repository.ts       # CRUD rooms + membership + invitations
+│           ├── friendship.repository.ts # Friend requests + friend list
+│           ├── profile.repository.ts    # User profiles
 │           └── dto/
 │               └── chat.dto.ts
+├── prisma/
+│   └── schema.prisma                # Database schema
+├── .env.example
 ├── package.json
 ├── tsconfig.json
 └── nest-cli.json
 ```
 
-## Installation
+---
+
+## 🗄️ Database schema (Prisma)
+
+```
+Profile         — User account: email, username, avatar, bio, role (USER / ADMIN)
+Room            — Chat room: name, createdBy, isPrivate
+RoomMember      — Quan hệ Profile ↔ Room (joinedAt)
+Message         — Tin nhắn room hoặc private (roomId / targetUserId)
+Friendship      — Friend request: userId, friendId, status (PENDING / ACCEPTED)
+RoomInvitation  — Room invite: roomId, inviteeId, inviterId, status (PENDING / ACCEPTED / DECLINED)
+```
+
+Xem chi tiết: [`prisma/schema.prisma`](./prisma/schema.prisma)
+
+---
+
+## ⚙️ Cài đặt & chạy
+
+### 1. Cài dependencies
 
 ```bash
-cd backend
 npm install
 ```
 
-## Running
+### 2. Tạo file `.env`
 
-- **Development** (watch mode):
+```bash
+cp .env.example .env
+```
 
-  ```bash
-  npm run start:dev
-  ```
+Cấu hình các biến:
 
-- **Production**:
+```env
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+PORT=3001
+CORS_ORIGIN=http://localhost:5173
+```
 
-  ```bash
-  npm run build
-  npm run start:prod
-  ```
+### 3. Chạy migration
 
-Server runs at **http://localhost:3001**. CORS allows frontend from `http://localhost:5173`, `http://localhost:3000`, `http://127.0.0.1:5173`.
+```bash
+npx prisma migrate dev
+```
 
-## Database
+### 4. Khởi động server
 
-- PostgreSQL: Configured via the `DATABASE_URL` environment variable in the `.env` file.
-- Tables (`rooms` and `messages`) are automatically created on startup if they do not exist.
+```bash
+# Development (watch mode)
+npm run start:dev
 
-## WebSocket events (reference)
+# Production
+npm run build
+npm run start:prod
+```
 
-| Event | Direction | Description |
-|-------|-----------|-------------|
-| `connect` | client | Handshake (query: userId, username) |
-| `message` | both | Broadcast to all |
-| `batch` | client→srv | Batch multiple emits into one request (server replays handlers) |
-| `private_message` | both | Private message (targetUserId) |
-| `join_room` / `leave_room` | client→srv | Join / leave room |
-| `room_message` | both | Message in room |
-| `typing` | both | Typing indicator |
-| `get_online_users` | client→srv | Request online list |
-| `online_users` | srv→client | Online users list (incl. avatar) |
-| `get_room_history` | client→srv | Request room history |
-| `room_history` | srv→client | `{ roomId, messages }` |
-| `create_room` / `rename_room` / `delete_room` | client→srv | Room management |
-| `get_rooms` | client→srv | Request room list |
-| `rooms_list` | srv→client | Room list update |
-| `update_profile` | client→srv | Update profile (Settings) |
-| `profile_updated` | srv→client | Broadcast profile update |
+Server khởi động tại **http://localhost:3001**.
 
-### Batch event details
+---
 
-The `batch` event accepts `{ items: [{ event, args }] }` and replays the original handlers (`message`, `room_message`, `private_message`) server-side. This reduces network overhead when clients send multiple messages in quick succession.
+## 🌐 Socket.IO events
+
+### Client → Server
+
+| Event | Payload | Mô tả |
+|---|---|---|
+| `join_room` | `{ roomId }` | Vào phòng chat |
+| `leave_room` | `{ roomId }` | Rời phòng chat |
+| `room_message` | `{ roomId, message }` | Gửi tin nhắn vào phòng |
+| `private_message` | `{ targetUserId, message }` | Gửi tin nhắn riêng tư |
+| `typing` | `{ roomId?, isTyping }` | Đang nhập |
+| `get_online_users` | — | Lấy danh sách user online |
+| `get_room_history` | `{ roomId }` | Lấy 50 tin nhắn gần nhất |
+| `create_room` | `{ roomName, isPrivate? }` | Tạo phòng mới |
+| `rename_room` | `{ roomId, newName }` | Đổi tên phòng (owner) |
+| `delete_room` | `{ roomId }` | Xóa phòng (owner) |
+| `invite_to_room` | `{ roomId, targetUserId }` | Mời bạn vào phòng |
+| `respond_room_invite` | `{ roomId, accept: boolean }` | Chấp nhận / từ chối invite |
+| `get_room_members` | `{ roomId }` | Lấy danh sách thành viên |
+| `kick_member` | `{ roomId, targetUserId }` | Xóa thành viên (owner) |
+| `exit_room` | `{ roomId }` | Rời phòng (non-owner) |
+| `send_friend_request` | `{ targetUserId }` | Gửi lời mời kết bạn |
+| `respond_friend_request` | `{ targetUserId, action }` | `"accept"` hoặc `"decline"` |
+| `remove_friend` | `{ targetUserId }` | Hủy kết bạn |
+| `update_profile` | `{ userId, username, avatar, bio? }` | Cập nhật profile |
+| `clear_room_history` | `{ roomId }` | Xóa lịch sử (Admin only) |
+
+### Server → Client
+
+| Event | Payload | Mô tả |
+|---|---|---|
+| `online_users` | `OnlineUser[]` | Danh sách user đang online |
+| `rooms_list` | `RoomListItem[]` | Danh sách phòng (broadcast khi có thay đổi) |
+| `room_history` | `{ roomId, messages }` | Lịch sử tin nhắn |
+| `room_members` | `{ roomId, members }` | Thành viên phòng |
+| `room_created` | `{ roomId, roomName, createdBy }` | Phòng mới được tạo |
+| `room_renamed` | `{ roomId, oldName, newName }` | Phòng được đổi tên |
+| `room_deleted` | `{ roomId, roomName }` | Phòng bị xóa |
+| `room_invite` | `{ roomId, roomName, inviterUsername, createdAt }` | Nhận được lời mời vào phòng |
+| `user_joined_room` | `{ username, roomId }` | Có người vào phòng |
+| `user_left_room` | `{ username, roomId }` | Có người rời phòng |
+| `moved_to_general` | — | Bị chuyển về #general (phòng bị xóa) |
+| `friend_request_received` | `{ from }` | Nhận lời mời kết bạn |
+| `friend_request_responded` | `{ action, by }` | Phản hồi lời mời kết bạn |
+| `friend_removed` | `{ by }` | Bị hủy kết bạn |
+| `profile_updated` | `{ userId, username, avatar, bio? }` | Profile được cập nhật |
+| `room_error` | `{ action, message }` | Lỗi validation |
+
+---
+
+## 🔐 CORS
+
+CORS được cấu hình qua biến `CORS_ORIGIN` trong `.env`. Mặc định cho phép `http://localhost:5173`.
