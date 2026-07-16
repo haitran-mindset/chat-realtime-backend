@@ -520,6 +520,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       username: user.username,
       roomId,
       timestamp: new Date().toISOString(),
+      action: 'leave',
     };
     this.server.to(roomId).emit('user_left_room', data);
     this.logger.log(`${user.username} switched away from room: ${roomId}`);
@@ -568,6 +569,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           username: user.username,
           roomId,
           timestamp: new Date().toISOString(),
+          action: 'exit',
         };
         this.server.to(roomId).emit('user_left_room', data);
       }
@@ -951,6 +953,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!user) return;
     const rooms = await this.roomRepository.getAllForUser(user.userId);
     this.server.to(client.id).emit('rooms_list', rooms);
+
+    const invites = await this.roomRepository.getPendingInvitationsForUser(user.userId);
+    this.server.to(client.id).emit('room_invitations_list', invites);
   }
 
   /**
@@ -988,25 +993,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const room = await this.roomRepository.getById(payload.roomId);
       if (!room) throw new Error('Room not found');
 
-      // Add target user to DB membership
-      await this.roomRepository.joinRoom(payload.targetUserId, payload.roomId);
+      // Create pending invitation in DB
+      await this.roomRepository.createInvitation(payload.roomId, payload.targetUserId, user.userId);
 
-      // Socket-join target user if online
+      // Notify invited user if online
       const targetSocketId = this.chatService.getSocketIdByUserId(payload.targetUserId);
       if (targetSocketId) {
-        const targetSocket = this.getSocket(targetSocketId);
-        if (targetSocket) {
-          targetSocket.join(payload.roomId);
-          this.chatService.joinRoom(targetSocketId, payload.roomId);
-        }
-        // Notify invited user
+        // Send a direct real-time notification
         this.server.to(targetSocketId).emit('room_invite_received', {
           roomId: payload.roomId,
           roomName: room.name,
           invitedBy: user.username,
         });
-        // Send updated room list to invited user
-        await this.emitRoomsToUser(payload.targetUserId);
+        // Send updated invitation list to target user
+        const invites = await this.roomRepository.getPendingInvitationsForUser(payload.targetUserId);
+        this.server.to(targetSocketId).emit('room_invitations_list', invites);
       }
 
       this.logger.log(`${user.username} invited ${payload.targetUserId} to room ${payload.roomId}`);
@@ -1017,6 +1018,73 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to invite user';
       this.server.to(client.id).emit('room_error', { action: 'invite', message });
+    }
+  }
+
+  @SubscribeMessage('get_room_invitations')
+  async handleGetRoomInvitations(client: { id: string }) {
+    const user = this.chatService.getUserBySocketId(client.id);
+    if (!user) return;
+    const invites = await this.roomRepository.getPendingInvitationsForUser(user.userId);
+    this.server.to(client.id).emit('room_invitations_list', invites);
+  }
+
+  @SubscribeMessage('respond_to_room_invite')
+  async handleRespondToRoomInvite(
+    client: { id: string },
+    payload: { roomId: string; accept: boolean },
+  ) {
+    const user = this.chatService.getUserBySocketId(client.id);
+    if (!user || !payload.roomId) return;
+
+    try {
+      const invite = await this.roomRepository.getInvitation(payload.roomId, user.userId);
+      if (!invite || invite.status !== 'PENDING') {
+        this.server.to(client.id).emit('room_error', {
+          action: 'respond_invite',
+          message: 'Invitation not found or already processed',
+        });
+        return;
+      }
+
+      // Delete the invitation
+      await this.roomRepository.deleteInvitation(payload.roomId, user.userId);
+
+      if (payload.accept) {
+        // Join room DB
+        await this.roomRepository.joinRoom(user.userId, payload.roomId);
+
+        // Socket-join user
+        const socket = this.getSocket(client.id);
+        if (socket) {
+          socket.join(payload.roomId);
+          this.chatService.joinRoom(client.id, payload.roomId);
+        }
+
+        // Send updated room list to user
+        const rooms = await this.roomRepository.getAllForUser(user.userId);
+        this.server.to(client.id).emit('rooms_list', rooms);
+
+        // Emit user_joined_room to room (which now shows in room chat screen only, no toast)
+        const data = {
+          userId: user.userId,
+          username: user.username,
+          roomId: payload.roomId,
+          timestamp: new Date().toISOString(),
+        };
+        this.server.to(payload.roomId).emit('user_joined_room', data);
+
+        // Notify room members to refresh their member lists
+        const members = await this.roomRepository.getRoomMembers(payload.roomId);
+        this.server.to(payload.roomId).emit('room_members', { roomId: payload.roomId, members });
+      }
+
+      // Send updated invitation list
+      const invites = await this.roomRepository.getPendingInvitationsForUser(user.userId);
+      this.server.to(client.id).emit('room_invitations_list', invites);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to respond to invitation';
+      this.server.to(client.id).emit('room_error', { action: 'respond_invite', message });
     }
   }
 

@@ -288,4 +288,71 @@ export class RoomRepository implements OnModuleInit {
   static getGeneralRoomId(): string {
     return GENERAL_ROOM_ID;
   }
+
+  async createInvitation(roomId: string, inviteeId: string, inviterId: string): Promise<any> {
+    return this.prisma.roomInvitation.upsert({
+      where: {
+        uq_room_invitee: {
+          roomId,
+          inviteeId,
+        },
+      },
+      update: {
+        status: 'PENDING',
+        inviterId,
+        createdAt: BigInt(Date.now()),
+      },
+      create: {
+        roomId,
+        inviteeId,
+        inviterId,
+        status: 'PENDING',
+        createdAt: BigInt(Date.now()),
+      },
+    });
+  }
+
+  async getPendingInvitationsForUser(userId: string) {
+    const invites = await this.prisma.roomInvitation.findMany({
+      where: { inviteeId: userId, status: 'PENDING' },
+      include: {
+        room: {
+          select: {
+            name: true,
+          },
+        },
+        inviter: {
+          select: {
+            username: true,
+          },
+        },
+      },
+    });
+    return invites.map((inv) => ({
+      roomId: inv.roomId,
+      roomName: inv.room.name,
+      inviterUsername: inv.inviter.username,
+      createdAt: Number(inv.createdAt),
+    }));
+  }
+
+  async getInvitation(roomId: string, inviteeId: string) {
+    return this.prisma.roomInvitation.findUnique({
+      where: {
+        uq_room_invitee: {
+          roomId,
+          inviteeId,
+        },
+      },
+    });
+  }
+
+  async deleteInvitation(roomId: string, inviteeId: string): Promise<void> {
+    await this.prisma.roomInvitation.deleteMany({
+      where: {
+        roomId,
+        inviteeId,
+      },
+    });
+  }
 }
