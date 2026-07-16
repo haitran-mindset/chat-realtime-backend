@@ -64,14 +64,23 @@ export class ChatService {
     return this.connectedUsers.get(socketId);
   }
 
-  /**
-   * Get socket ID for a userId (first match; users may have multiple tabs).
-   */
   getSocketIdByUserId(userId: string): string | undefined {
     for (const [sid, u] of this.connectedUsers) {
       if (u.userId === userId) return sid;
     }
     return undefined;
+  }
+
+  /**
+   * Update profile info across all active sockets for a user.
+   */
+  updateUserProfile(userId: string, username: string, avatar: string): void {
+    for (const u of this.connectedUsers.values()) {
+      if (u.userId === userId) {
+        u.username = username;
+        u.avatar = avatar;
+      }
+    }
   }
 
   /**

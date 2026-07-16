@@ -1096,8 +1096,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = this.chatService.getUserBySocketId(client.id);
     if (!user) return;
 
-    user.username = payload.username;
-    user.avatar = payload.avatar;
+    // Update memory state across ALL connected tabs for this user
+    this.chatService.updateUserProfile(user.userId, payload.username, payload.avatar);
 
     await this.profileRepository.updateProfile(
       user.userId,
